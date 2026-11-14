@@ -55,5 +55,6 @@ check_jsx.js
 *.db-wal
 backend/certificates_storage/*.pdf
 !backend/certificates_storage/.gitkeep
+.vscode/
 
 
