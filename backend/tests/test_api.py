@@ -260,3 +260,28 @@ def test_roadmap_endpoints():
     new_roadmap = gen_resp.json()
     assert len(new_roadmap["items"]) >= 1
 
+def test_health_and_system_metrics():
+    # Test GET /health
+    h_resp = client.get("/health")
+    assert h_resp.status_code == 200
+    h_data = h_resp.json()
+    assert h_data["status"] == "healthy"
+    assert h_data["database"] == "connected"
+
+    # Test GET /system/metrics
+    m_resp = client.get("/system/metrics")
+    assert m_resp.status_code == 200
+    m_data = m_resp.json()
+    assert m_data["sqlite_journal_mode"] == "WAL"
+    assert m_data["in_browser_babel"] is False
+
+def test_owasp_security_headers():
+    resp = client.get("/api")
+    assert resp.status_code == 200
+    headers = resp.headers
+    assert headers.get("x-content-type-options") == "nosniff"
+    assert headers.get("x-frame-options") == "DENY"
+    assert "strict-origin-when-cross-origin" in headers.get("referrer-policy", "")
+    assert "default-src" in headers.get("content-security-policy", "")
+
+

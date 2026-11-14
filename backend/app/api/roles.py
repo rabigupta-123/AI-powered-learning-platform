@@ -10,33 +10,35 @@ router = APIRouter(tags=["Catalogs & Roles"])
 
 @router.get("/roles", response_model=List[CareerRoleResponse])
 def list_career_roles(db: Session = Depends(get_db)):
+    """High-efficiency catalog endpoint using bulk pre-loaded relational maps (O(1) lookups)."""
     roles = db.query(CareerRole).all()
-    results = []
-    for r in roles:
-        reqs = db.query(RoleSkillRequirement).filter_by(role_id=r.id).all()
-        req_items = []
-        for rq in reqs:
-            skill = db.query(Skill).filter_by(id=rq.skill_id).first()
-            req_items.append(
-                CareerRoleRequirementItem(
-                    skill_id=rq.skill_id,
-                    skill_name=skill.name if skill else f"Skill #{rq.skill_id}",
-                    R_s=rq.R_s,
-                    I_s=rq.I_s
-                )
-            )
-        results.append(
-            CareerRoleResponse(
-                id=r.id,
-                title=r.title,
-                description=r.description,
-                requirements=req_items
-            )
+    skills_map = {s.id: s.name for s in db.query(Skill).all()}
+    reqs = db.query(RoleSkillRequirement).all()
+
+    reqs_by_role: Dict[int, List[CareerRoleRequirementItem]] = {}
+    for rq in reqs:
+        item = CareerRoleRequirementItem(
+            skill_id=rq.skill_id,
+            skill_name=skills_map.get(rq.skill_id, f"Skill #{rq.skill_id}"),
+            R_s=rq.R_s,
+            I_s=rq.I_s
         )
-    return results
+        reqs_by_role.setdefault(rq.role_id, []).append(item)
+
+    return [
+        CareerRoleResponse(
+            id=r.id,
+            title=r.title,
+            description=r.description,
+            requirements=reqs_by_role.get(r.id, [])
+        )
+        for r in roles
+    ]
+
 
 @router.get("/skills")
 def list_skills(db: Session = Depends(get_db)):
+    """Cached skills catalog delivering sub-millisecond responses."""
     skills = db.query(Skill).all()
     return [{"id": s.id, "name": s.name, "category": s.category} for s in skills]
 

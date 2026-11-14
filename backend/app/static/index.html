@@ -645,10 +645,33 @@
       .sidebar { width: 80px; padding: 16px 8px; }
       .brand-text, .nav-item span:nth-child(2), .nav-badge, .learner-card { display: none; }
     }
+
+    /* WCAG AA Accessible Keyboard Focus & Skip Link */
+    :focus-visible {
+      outline: 2px solid var(--accent-cyan) !important;
+      outline-offset: 2px !important;
+    }
+    .skip-to-content {
+      position: absolute;
+      top: -100px;
+      left: 16px;
+      background: var(--accent-cyan);
+      color: #0A0E27;
+      font-weight: 700;
+      padding: 8px 16px;
+      border-radius: 6px;
+      z-index: 9999;
+      transition: top 0.2s ease;
+      text-decoration: none;
+    }
+    .skip-to-content:focus {
+      top: 16px;
+    }
   </style>
 </head>
 <body class="theme-dark">
-  <div id="root"></div>
+  <a href="#root" class="skip-to-content">Skip to main content</a>
+  <div id="root" role="main" aria-label="AI-Powered Personalized Learning Platform"></div>
 
   <script src="/static/app.bundle.js"></script>
 </body>
