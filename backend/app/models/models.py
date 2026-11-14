@@ -116,9 +116,9 @@ class LearningResource(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     title = Column(String(200), nullable=False)
     url = Column(String(500), nullable=False)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     provider = Column(String(100), default="Online Resource", nullable=False)
-    difficulty = Column(Integer, default=1, nullable=False)  # 1: Beginner, 2: Intermediate, 3: Advanced
+    difficulty = Column(Integer, default=1, nullable=False, index=True)  # 1: Beginner, 2: Intermediate, 3: Advanced
     est_hours = Column(Float, default=10.0, nullable=False)  # Estimated hours T_s
     tags = Column(String(255), default="", nullable=False)   # Comma-separated tags
 
@@ -131,8 +131,8 @@ class Assessment(Base):
     __tablename__ = "assessments"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     score = Column(Float, nullable=False)  # 0-100
     taken_at = Column(DateTime, default=utc_now, nullable=False)
 
@@ -160,11 +160,11 @@ class Recommendation(Base):
     __tablename__ = "recommendations"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     resource_id = Column(Integer, ForeignKey("learning_resources.id", ondelete="CASCADE"), nullable=False)
     priority_score = Column(Float, default=0.0, nullable=False)
-    status = Column(String(50), default="active", nullable=False)  # active, completed, dismissed
+    status = Column(String(50), default="active", nullable=False, index=True)  # active, completed, dismissed
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
     user = relationship("User", back_populates="recommendations")
@@ -176,7 +176,7 @@ class ProgressLog(Base):
     __tablename__ = "progress_log"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     resource_id = Column(Integer, ForeignKey("learning_resources.id", ondelete="CASCADE"), nullable=False)
     status = Column(String(50), default="in_progress", nullable=False)  # in_progress, completed
     time_spent_min = Column(Integer, default=0, nullable=False)
@@ -190,7 +190,7 @@ class ChatConversation(Base):
     __tablename__ = "chat_conversations"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(200), default="New Mentorship Session", nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
@@ -203,8 +203,8 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    conversation_id = Column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=True, index=True)
     role = Column(String(20), nullable=False)  # "user" or "assistant"
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -230,8 +230,8 @@ class Certificate(Base):
     __tablename__ = "certificates"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     issued_at = Column(DateTime, default=utc_now, nullable=False)
     verification_code = Column(String(64), unique=True, index=True, nullable=False)
     pdf_path = Column(String(500), nullable=False)
@@ -244,14 +244,14 @@ class AssessmentQuestion(Base):
     __tablename__ = "assessment_questions"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     question_text = Column(Text, nullable=False)
     option_a = Column(String(300), nullable=False)
     option_b = Column(String(300), nullable=False)
     option_c = Column(String(300), nullable=False)
     option_d = Column(String(300), nullable=False)
     correct_option = Column(String(5), nullable=False)  # 'A', 'B', 'C', 'D'
-    difficulty = Column(Integer, default=1, nullable=False)  # 1 to 3
+    difficulty = Column(Integer, default=1, nullable=False, index=True)  # 1 to 3
     explanation = Column(Text, default="", nullable=False)
 
     skill = relationship("Skill")
@@ -262,8 +262,8 @@ class AssessmentAttempt(Base):
     __tablename__ = "assessment_attempts"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    question_id = Column(Integer, ForeignKey("assessment_questions.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(Integer, ForeignKey("assessment_questions.id", ondelete="CASCADE"), nullable=False, index=True)
     selected_option = Column(String(5), nullable=False)
     is_correct = Column(Boolean, nullable=False)
     score = Column(Float, nullable=False)
@@ -277,8 +277,8 @@ class LearningRoadmap(Base):
     __tablename__ = "learning_roadmaps"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    role_id = Column(Integer, ForeignKey("career_roles.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey("career_roles.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(200), nullable=False)
     generated_at = Column(DateTime, default=utc_now, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -292,8 +292,8 @@ class RoadmapItem(Base):
     __tablename__ = "roadmap_items"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    roadmap_id = Column(Integer, ForeignKey("learning_roadmaps.id", ondelete="CASCADE"), nullable=False)
-    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    roadmap_id = Column(Integer, ForeignKey("learning_roadmaps.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Integer, ForeignKey("skills.id", ondelete="CASCADE"), nullable=False, index=True)
     resource_id = Column(Integer, ForeignKey("learning_resources.id", ondelete="CASCADE"), nullable=True)
     stage_order = Column(Integer, nullable=False)
     stage_title = Column(String(200), nullable=False)

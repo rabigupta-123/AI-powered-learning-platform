@@ -1,11 +1,14 @@
 """Bridge connecting the database state, SQLAlchemy transactions, and the LangGraph multi-agent graph.
+Optimized with bulk relationship joins, batch updates, and execution logging.
 """
+import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 from ..models import (
     User, Skill, UserSkill, CareerRole, RoleSkillRequirement,
-    UserCareerGoal, LearningResource, BKTState, Recommendation, Certificate
+    UserCareerGoal, LearningResource, BKTState, Recommendation, Certificate,
+    AgentExecutionLog
 )
 from ..agents import LearnerState, run_agent_workflow
 from ..core.certificate import generate_certificate_pdf
@@ -16,8 +19,10 @@ def execute_learner_agent_cycle(
     db: Session,
     event_payload: Optional[Dict[str, Any]] = None
 ) -> LearnerState:
-    """Extracts database state for learner, runs multi-agent cycle, and persists outputs."""
-    # 1. Fetch user skills
+    """Extracts database state for learner, runs multi-agent cycle, and persists outputs efficiently."""
+    start_t = time.perf_counter()
+
+    # 1. Fetch user skills in a single join query
     u_skills = db.query(UserSkill).join(Skill).filter(UserSkill.user_id == user_id).all()
     skill_profile: Dict[int, Dict[str, Any]] = {}
     for us in u_skills:
@@ -30,7 +35,7 @@ def execute_learner_agent_cycle(
             "P_s": us.P_s
         }
 
-    # 2. Fetch active career goal
+    # 2. Fetch active career goal and requirements in a single join query
     active_goal_record = (
         db.query(UserCareerGoal)
         .filter_by(user_id=user_id, active=True)
@@ -41,16 +46,21 @@ def execute_learner_agent_cycle(
     if active_goal_record:
         role = db.query(CareerRole).filter_by(id=active_goal_record.role_id).first()
         if role:
-            reqs = db.query(RoleSkillRequirement).filter_by(role_id=role.id).all()
-            requirements_list = []
-            for r in reqs:
-                skill_obj = db.query(Skill).filter_by(id=r.skill_id).first()
-                requirements_list.append({
+            reqs = (
+                db.query(RoleSkillRequirement)
+                .join(Skill)
+                .filter(RoleSkillRequirement.role_id == role.id)
+                .all()
+            )
+            requirements_list = [
+                {
                     "skill_id": r.skill_id,
-                    "skill_name": skill_obj.name if skill_obj else f"Skill #{r.skill_id}",
+                    "skill_name": r.skill.name if r.skill else f"Skill #{r.skill_id}",
                     "R_s": r.R_s,
                     "I_s": r.I_s
-                })
+                }
+                for r in reqs
+            ]
             active_career_goal = {
                 "role_id": role.id,
                 "role_title": role.title,
@@ -76,9 +86,8 @@ def execute_learner_agent_cycle(
 
     # 4. Fetch candidate learning resources
     all_resources = db.query(LearningResource).all()
-    candidate_resources = []
-    for r in all_resources:
-        candidate_resources.append({
+    candidate_resources = [
+        {
             "id": r.id,
             "skill_id": r.skill_id,
             "title": r.title,
@@ -86,7 +95,9 @@ def execute_learner_agent_cycle(
             "difficulty": r.difficulty,
             "est_hours": r.est_hours,
             "tags": r.tags
-        })
+        }
+        for r in all_resources
+    ]
 
     payload = dict(event_payload or {})
     payload["candidate_resources"] = candidate_resources
@@ -105,19 +116,17 @@ def execute_learner_agent_cycle(
     # 5. Execute LangGraph workflow
     final_state = run_agent_workflow(state)
 
-    # 6. Persist results back to database
-    # Persist updated P_s
+    # 6. Bulk persist updates without N+1 queries
+    existing_skills_map = {us.skill_id: us for us in u_skills}
     for skill_id, s_data in final_state.get("skill_profile", {}).items():
-        us_record = db.query(UserSkill).filter_by(user_id=user_id, skill_id=skill_id).first()
-        if us_record:
-            us_record.P_s = s_data.get("P_s", us_record.P_s)
+        if skill_id in existing_skills_map:
+            existing_skills_map[skill_id].P_s = s_data.get("P_s", existing_skills_map[skill_id].P_s)
 
-    # Persist updated BKT states
+    existing_bkt_map = {b.skill_id: b for b in bkt_records}
     for skill_id, b_data in final_state.get("bkt_states", {}).items():
-        b_rec = db.query(BKTState).filter_by(user_id=user_id, skill_id=skill_id).first()
-        if b_rec:
-            b_rec.p_mastery = b_data.get("p_mastery", b_rec.p_mastery)
-            b_rec.attempts_count = b_data.get("attempts_count", b_rec.attempts_count)
+        if skill_id in existing_bkt_map:
+            existing_bkt_map[skill_id].p_mastery = b_data.get("p_mastery", existing_bkt_map[skill_id].p_mastery)
+            existing_bkt_map[skill_id].attempts_count = b_data.get("attempts_count", existing_bkt_map[skill_id].attempts_count)
         else:
             new_b = BKTState(
                 user_id=user_id,
@@ -128,27 +137,27 @@ def execute_learner_agent_cycle(
             db.add(new_b)
 
     # Auto-issue Certificate when P(Ln) >= 0.80
+    user_certs = {c.skill_id: c for c in db.query(Certificate).filter_by(user_id=user_id).all()}
     for skill_id, b_data in final_state.get("bkt_states", {}).items():
-        if b_data.get("p_mastery", 0.0) >= 0.80:
-            existing_cert = db.query(Certificate).filter_by(user_id=user_id, skill_id=skill_id).first()
-            if not existing_cert:
-                user_obj = db.query(User).filter_by(id=user_id).first()
-                skill_obj = db.query(Skill).filter_by(id=skill_id).first()
-                role_title = active_career_goal["role_title"] if active_career_goal else "Full Stack Developer"
-                code, pdf_path = generate_certificate_pdf(
-                    learner_name=user_obj.name if user_obj else "Demo Learner",
-                    skill_name=skill_obj.name if skill_obj else f"Skill #{skill_id}",
-                    role_title=role_title,
-                    issued_at=datetime.now(timezone.utc)
-                )
-                new_cert = Certificate(
-                    user_id=user_id,
-                    skill_id=skill_id,
-                    issued_at=datetime.now(timezone.utc),
-                    verification_code=code,
-                    pdf_path=pdf_path
-                )
-                db.add(new_cert)
+        if b_data.get("p_mastery", 0.0) >= 0.80 and skill_id not in user_certs:
+            user_obj = db.query(User).filter_by(id=user_id).first()
+            skill_obj = db.query(Skill).filter_by(id=skill_id).first()
+            role_title = active_career_goal["role_title"] if active_career_goal else "Full Stack Developer"
+            code, pdf_path = generate_certificate_pdf(
+                learner_name=user_obj.name if user_obj else "Demo Learner",
+                skill_name=skill_obj.name if skill_obj else f"Skill #{skill_id}",
+                role_title=role_title,
+                issued_at=datetime.now(timezone.utc)
+            )
+            new_cert = Certificate(
+                user_id=user_id,
+                skill_id=skill_id,
+                issued_at=datetime.now(timezone.utc),
+                verification_code=code,
+                pdf_path=pdf_path
+            )
+            db.add(new_cert)
+            user_certs[skill_id] = new_cert
 
     # Persist recommendations
     db.query(Recommendation).filter_by(user_id=user_id).delete()
@@ -161,6 +170,18 @@ def execute_learner_agent_cycle(
             status="active"
         )
         db.add(r_entry)
+
+    # 7. Log agent cycle execution metrics
+    duration_ms = round((time.perf_counter() - start_t) * 1000, 2)
+    exec_log = AgentExecutionLog(
+        agent_name="LangGraphOrchestrator",
+        trigger_event=event,
+        status="success",
+        execution_time_ms=duration_ms,
+        input_summary=f"Event: {event}, User: {user_id}",
+        output_summary=f"Gaps: {len(final_state.get('gap_report', {}).get('details', []))}, Recs: {len(final_state.get('recommendations', []))}"
+    )
+    db.add(exec_log)
 
     db.commit()
     return final_state

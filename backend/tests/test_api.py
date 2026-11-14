@@ -207,3 +207,56 @@ def test_mentor_chat_grounding():
     assert len(resp_text) > 10
     # Must answer about readiness or role
     assert any(term in resp_text.lower() for term in ["readiness", "full stack", "fit", "percent"])
+
+def test_quiz_questions_and_submission():
+    token = get_auth_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. Fetch questions
+    q_resp = client.get("/assessment/questions?limit=5", headers=headers)
+    assert q_resp.status_code == 200
+    questions = q_resp.json()
+    assert len(questions) > 0
+    q1 = questions[0]
+    assert "question_text" in q1
+    assert "option_a" in q1
+    # Verify correct_option is NOT exposed in the questions endpoint
+    assert "correct_option" not in q1
+
+    # 2. Submit quiz answers for grading on backend
+    sub_payload = {
+        "skill_id": q1["skill_id"],
+        "answers": {str(q1["id"]): "A"}
+    }
+    sub_resp = client.post("/assessment/quiz-submit", json=sub_payload, headers=headers)
+    assert sub_resp.status_code == 200
+    sub_data = sub_resp.json()
+    assert "score_percentage" in sub_data
+    assert "p_mastery_after" in sub_data
+    assert len(sub_data["results"]) == 1
+
+def test_roadmap_endpoints():
+    token = get_auth_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. GET /roadmap
+    r_resp = client.get("/roadmap", headers=headers)
+    assert r_resp.status_code == 200
+    roadmap = r_resp.json()
+    assert "role_title" in roadmap
+    assert len(roadmap["items"]) >= 1
+
+    item1 = roadmap["items"][0]
+    item_id = item1["id"]
+
+    # 2. PUT /roadmap/items/{id}/status
+    status_resp = client.put(f"/roadmap/items/{item_id}/status", json={"status": "in_progress"}, headers=headers)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "in_progress"
+
+    # 3. POST /roadmap/generate
+    gen_resp = client.post("/roadmap/generate", headers=headers)
+    assert gen_resp.status_code == 200
+    new_roadmap = gen_resp.json()
+    assert len(new_roadmap["items"]) >= 1
+

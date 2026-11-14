@@ -34,3 +34,4 @@ def calculate_mastery_achievement_rate(p_mastery_values: List[float], total_requ
         return 0.0
     mastered = sum(1 for p in p_mastery_values if float(p) >= 0.80)
     return round((mastered / total_required) * 100.0, 2)
+

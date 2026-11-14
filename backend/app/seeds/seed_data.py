@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..models import (
     Skill, CareerRole, RoleSkillRequirement, LearningResource,
     User, UserSkill, UserCareerGoal, BKTState, UserSettings,
-    Recommendation, Certificate
+    Recommendation, Certificate, AssessmentQuestion, LearningRoadmap, RoadmapItem
 )
 from ..core.security import hash_password
 from ..core.certificate import generate_certificate_pdf
@@ -370,5 +370,416 @@ def seed_database(db: Session):
             pdf_path=pdf_path
         )
         db.add(cert)
+
+    # 6. Additional Career Roles for multi-role career matching
+    additional_roles = [
+        {
+            "title": "Frontend Engineer",
+            "description": "Specializes in building responsive, accessible, high-performance web user interfaces.",
+            "requirements": [
+                {"skill": "HTML", "R_s": 80.0, "I_s": 0.8},
+                {"skill": "JavaScript", "R_s": 90.0, "I_s": 1.0},
+                {"skill": "React", "R_s": 85.0, "I_s": 1.0},
+            ]
+        },
+        {
+            "title": "Backend Engineer",
+            "description": "Architects scalable APIs, database models, microservices, and high-throughput servers.",
+            "requirements": [
+                {"skill": "Python", "R_s": 85.0, "I_s": 1.0},
+                {"skill": "SQL", "R_s": 80.0, "I_s": 0.9},
+                {"skill": "Node.js", "R_s": 75.0, "I_s": 0.8},
+            ]
+        },
+        {
+            "title": "Data & AI Engineer",
+            "description": "Develops data processing pipelines, SQL warehouses, and operationalizes machine learning models.",
+            "requirements": [
+                {"skill": "Python", "R_s": 90.0, "I_s": 1.0},
+                {"skill": "SQL", "R_s": 85.0, "I_s": 0.9},
+            ]
+        }
+    ]
+
+    for r_spec in additional_roles:
+        r_obj = db.query(CareerRole).filter_by(title=r_spec["title"]).first()
+        if not r_obj:
+            r_obj = CareerRole(title=r_spec["title"], description=r_spec["description"])
+            db.add(r_obj)
+            db.flush()
+        for req in r_spec["requirements"]:
+            if req["skill"] in skill_records:
+                sk = skill_records[req["skill"]]
+                existing_req = db.query(RoleSkillRequirement).filter_by(role_id=r_obj.id, skill_id=sk.id).first()
+                if not existing_req:
+                    db.add(RoleSkillRequirement(
+                        role_id=r_obj.id,
+                        skill_id=sk.id,
+                        R_s=req["R_s"],
+                        I_s=req["I_s"]
+                    ))
+
+    # 7. Seed Real Assessment Questions (4 per skill = 24 questions)
+    if db.query(AssessmentQuestion).count() == 0:
+        questions_data = [
+            # Python
+            {
+                "skill": "Python",
+                "question": "What is the primary difference between a list and a tuple in Python?",
+                "a": "Lists are mutable while tuples are immutable",
+                "b": "Lists only store integers; tuples store any type",
+                "c": "Tuples cannot be indexed or sliced",
+                "d": "Lists are immutable; tuples are dynamically sized",
+                "correct": "A",
+                "difficulty": 1,
+                "explanation": "In Python, lists are mutable (can be changed after creation), whereas tuples are immutable sequence structures."
+            },
+            {
+                "skill": "Python",
+                "question": "Which Python keyword is used to yield values one by one in a generator function?",
+                "a": "return",
+                "b": "yield",
+                "c": "async",
+                "d": "generate",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "The 'yield' statement suspends function execution and returns a generator iterator value to the caller."
+            },
+            {
+                "skill": "Python",
+                "question": "What is the primary purpose of @functools.wraps when creating custom decorators?",
+                "a": "Compiles the function into native C bytecode",
+                "b": "Preserves the wrapped function's original metadata (__name__, __doc__)",
+                "c": "Forces the function to execute asynchronously",
+                "d": "Automatically adds exception retry handling",
+                "correct": "B",
+                "difficulty": 2,
+                "explanation": "@functools.wraps copies name, docstring, and annotations from the original function to the decorator wrapper."
+            },
+            {
+                "skill": "Python",
+                "question": "What is the average time complexity of searching for a key in a Python dict?",
+                "a": "O(n)",
+                "b": "O(log n)",
+                "c": "O(1)",
+                "d": "O(n log n)",
+                "correct": "C",
+                "difficulty": 2,
+                "explanation": "Python dictionaries use open-addressing hash tables, yielding average O(1) constant time lookup."
+            },
+
+            # SQL
+            {
+                "skill": "SQL",
+                "question": "Which SQL JOIN returns all rows from the left table and matching rows from the right table?",
+                "a": "INNER JOIN",
+                "b": "LEFT JOIN",
+                "c": "CROSS JOIN",
+                "d": "RIGHT JOIN",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "A LEFT JOIN preserves every row from the left table, populating NULL for non-matching right table columns."
+            },
+            {
+                "skill": "SQL",
+                "question": "What is the fundamental difference between WHERE and HAVING in SQL?",
+                "a": "WHERE filters rows before aggregation; HAVING filters groups after aggregation",
+                "b": "WHERE applies only to text columns; HAVING applies only to numbers",
+                "c": "HAVING can only be used with subqueries",
+                "d": "There is no difference in modern relational databases",
+                "correct": "A",
+                "difficulty": 2,
+                "explanation": "WHERE filters individual rows prior to GROUP BY aggregation; HAVING filters aggregated groups."
+            },
+            {
+                "skill": "SQL",
+                "question": "In relational database ACID properties, what does 'Atomicity' guarantee?",
+                "a": "All transactions run at the speed of light",
+                "b": "Either all operations in a transaction succeed, or none are applied (all-or-nothing)",
+                "c": "Data is stored on atomic hardware partitions",
+                "d": "Only one user can read the database at a time",
+                "correct": "B",
+                "difficulty": 2,
+                "explanation": "Atomicity guarantees that multi-step transactions execute as a single atomic unit of work."
+            },
+            {
+                "skill": "SQL",
+                "question": "Which index structure is the standard default for B-Tree indexing in PostgreSQL and SQLite?",
+                "a": "B-Tree index",
+                "b": "Hash index",
+                "c": "Inverted index",
+                "d": "Bloom filter",
+                "correct": "A",
+                "difficulty": 1,
+                "explanation": "B-Trees balance search, insertion, deletion, and range scans in O(log n) time."
+            },
+
+            # HTML
+            {
+                "skill": "HTML",
+                "question": "Which semantic HTML5 tag should enclose the dominant unique content of a webpage?",
+                "a": "<section>",
+                "b": "<article>",
+                "c": "<main>",
+                "d": "<div>",
+                "correct": "C",
+                "difficulty": 1,
+                "explanation": "The <main> tag designates the primary central content of the document body, excluding repeated headers/sidebars."
+            },
+            {
+                "skill": "HTML",
+                "question": "What is the accessibility purpose of the 'aria-label' attribute?",
+                "a": "Styles elements with high contrast colors",
+                "b": "Provides an explicit invisible text description for assistive technologies / screen readers",
+                "c": "Automatically focuses the element on page load",
+                "d": "Prevents right-clicking on sensitive elements",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "aria-label defines an accessible string label for assistive devices when visual text is absent or ambiguous."
+            },
+            {
+                "skill": "HTML",
+                "question": "What is the effect of placing the 'defer' attribute on a <script> tag?",
+                "a": "Script is downloaded asynchronously and executed only after HTML parsing completes",
+                "b": "Script download is blocked until user interacts with the page",
+                "c": "Script runs immediately and stops HTML rendering",
+                "d": "Script runs in a background Web Worker process",
+                "correct": "A",
+                "difficulty": 2,
+                "explanation": "defer downloads external scripts in parallel without blocking parsing, executing them in document order after parsing."
+            },
+            {
+                "skill": "HTML",
+                "question": "Which meta viewport declaration ensures responsive scaling on mobile devices?",
+                "a": "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
+                "b": "<meta name='viewport' content='mobile-first=true'>",
+                "c": "<meta name='viewport' content='width=1024, user-scalable=no'>",
+                "d": "<meta name='responsive' content='true'>",
+                "correct": "A",
+                "difficulty": 1,
+                "explanation": "width=device-width with initial-scale=1.0 matches the viewport to the device's screen pixels."
+            },
+
+            # JavaScript
+            {
+                "skill": "JavaScript",
+                "question": "What is a closure in JavaScript?",
+                "a": "A function that has access to variables from its outer (lexical) scope even after outer execution ends",
+                "b": "A method that terminates a WebSocket or worker thread",
+                "c": "A strict mode syntax for sealing object properties",
+                "d": "An async function that returns a Promise",
+                "correct": "A",
+                "difficulty": 2,
+                "explanation": "Closures allow an inner function to retain lexical bindings to its enclosing parent scope."
+            },
+            {
+                "skill": "JavaScript",
+                "question": "In the JavaScript Event Loop, which queue is drained immediately after the synchronous call stack?",
+                "a": "Macrotask queue (setTimeout, setInterval)",
+                "b": "Microtask queue (Promise.then, queueMicrotask)",
+                "c": "I/O polling queue",
+                "d": "requestIdleCallback queue",
+                "correct": "B",
+                "difficulty": 2,
+                "explanation": "Microtasks have higher priority than macrotasks and are completely emptied at the end of each tick."
+            },
+            {
+                "skill": "JavaScript",
+                "question": "What is the result of evaluating `typeof null` in standard JavaScript?",
+                "a": "'null'",
+                "b": "'undefined'",
+                "c": "'object'",
+                "d": "'boolean'",
+                "correct": "C",
+                "difficulty": 1,
+                "explanation": "In JavaScript, `typeof null` returns 'object', an infamous historic bug dating back to the first JS engine in 1995."
+            },
+            {
+                "skill": "JavaScript",
+                "question": "Which array method returns a single accumulated value from iterating over all elements?",
+                "a": "map()",
+                "b": "filter()",
+                "c": "reduce()",
+                "d": "find()",
+                "correct": "C",
+                "difficulty": 1,
+                "explanation": "Array.prototype.reduce() runs a reducer callback across every element, accumulating into a single output."
+            },
+
+            # React
+            {
+                "skill": "React",
+                "question": "What is the primary purpose of the dependency array in React's useEffect hook?",
+                "a": "To register npm package dependencies at build time",
+                "b": "To specify variables that trigger the effect callback when their values change",
+                "c": "To define props passed from children to parent components",
+                "d": "To force a component to re-mount every millisecond",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "React compares dependency array values via Object.is between renders, only re-running the effect when changed."
+            },
+            {
+                "skill": "React",
+                "question": "Why does React require unique 'key' props when rendering dynamic list elements?",
+                "a": "To generate unique CSS class selectors for styling",
+                "b": "To allow the Reconciliation algorithm to identify which items were modified, added, or removed efficiently",
+                "c": "To prevent browser cross-site scripting vulnerabilities",
+                "d": "To auto-sort list elements in alphabetical order",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "Keys provide identity to virtual DOM nodes, allowing diffing without needlessly destroying and re-creating DOM nodes."
+            },
+            {
+                "skill": "React",
+                "question": "Which hook should be used to memoize expensive computations between renders?",
+                "a": "useCallback",
+                "b": "useMemo",
+                "c": "useRef",
+                "d": "useContext",
+                "correct": "B",
+                "difficulty": 2,
+                "explanation": "useMemo caches calculated values across renders until its specified dependencies update."
+            },
+            {
+                "skill": "React",
+                "question": "What is the core distinction between Props and State in React?",
+                "a": "Props are external and read-only to the component; State is managed internally and can change over time",
+                "b": "Props can only be numbers; State can only be strings",
+                "c": "State is passed down to child components; Props are never shared",
+                "d": "There is no difference in modern React 18",
+                "correct": "A",
+                "difficulty": 1,
+                "explanation": "Props configure a component from its parent (immutable), whereas state stores local mutable component state."
+            },
+
+            # Node.js
+            {
+                "skill": "Node.js",
+                "question": "Which multi-platform C library powers the event loop, thread pool, and async I/O in Node.js?",
+                "a": "libuv",
+                "b": "glibc",
+                "c": "V8 engine",
+                "d": "OpenSSL",
+                "correct": "A",
+                "difficulty": 2,
+                "explanation": "libuv is the high-performance C library that implements Node's event loop, timers, and worker thread pool."
+            },
+            {
+                "skill": "Node.js",
+                "question": "In Express.js middleware, what happens if neither next() is called nor a response is sent?",
+                "a": "Express automatically returns a 404 response",
+                "b": "The client request hangs indefinitely until reaching the connection timeout",
+                "c": "The Node.js server crashes with unhandled exception",
+                "d": "The request is passed to the next route automatically",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "Without calling next() or sending res.send()/res.json(), the event loop leaves the socket connection open."
+            },
+            {
+                "skill": "Node.js",
+                "question": "Which Node.js core module provides utilities for working with file and directory paths across operating systems?",
+                "a": "fs",
+                "b": "path",
+                "c": "os",
+                "d": "url",
+                "correct": "B",
+                "difficulty": 1,
+                "explanation": "The 'path' module handles Windows vs POSIX path delimiters and normalization seamlessly."
+            },
+            {
+                "skill": "Node.js",
+                "question": "What is the primary advantage of Node.js Streams when processing multi-gigabyte files?",
+                "a": "Streams encrypt files with AES-256 automatically",
+                "b": "Streams process data sequentially in small chunks, consuming minimal memory regardless of file size",
+                "c": "Streams run completely synchronously on the main thread",
+                "d": "Streams convert binary files into JSON arrays",
+                "correct": "B",
+                "difficulty": 2,
+                "explanation": "Streams avoid buffering entire large files into RAM, piping data in manageable buffers."
+            }
+        ]
+
+        for q in questions_data:
+            if q["skill"] in skill_records:
+                sk = skill_records[q["skill"]]
+                db.add(AssessmentQuestion(
+                    skill_id=sk.id,
+                    question_text=q["question"],
+                    option_a=q["a"],
+                    option_b=q["b"],
+                    option_c=q["c"],
+                    option_d=q["d"],
+                    correct_option=q["correct"],
+                    difficulty=q["difficulty"],
+                    explanation=q["explanation"]
+                ))
+
+    # 8. Seed Initial Adaptive Learning Roadmap for Demo Learner
+    demo_user = db.query(User).filter_by(email="demo@example.com").first()
+    fs_role = db.query(CareerRole).filter_by(title="Full Stack Developer").first()
+    if demo_user and fs_role:
+        existing_roadmap = db.query(LearningRoadmap).filter_by(user_id=demo_user.id, role_id=fs_role.id).first()
+        if not existing_roadmap:
+            roadmap = LearningRoadmap(
+                user_id=demo_user.id,
+                role_id=fs_role.id,
+                title="Full Stack Developer Adaptive Pathway",
+                is_active=True
+            )
+            db.add(roadmap)
+            db.flush()
+
+            stages = [
+                {
+                    "stage_order": 1,
+                    "stage_title": "Stage 1: JavaScript & Asynchronous Foundations",
+                    "skill": "JavaScript",
+                    "difficulty": 1,
+                    "est_hours": 20.0,
+                    "status": "in_progress",
+                    "prerequisites": "HTML, Python Basics"
+                },
+                {
+                    "stage_order": 2,
+                    "stage_title": "Stage 2: Frontend Engineering with React & Hooks",
+                    "skill": "React",
+                    "difficulty": 2,
+                    "est_hours": 25.0,
+                    "status": "not_started",
+                    "prerequisites": "Stage 1: JavaScript Foundations"
+                },
+                {
+                    "stage_order": 3,
+                    "stage_title": "Stage 3: Scalable Backend Services with Node.js & Express",
+                    "skill": "Node.js",
+                    "difficulty": 2,
+                    "est_hours": 20.0,
+                    "status": "not_started",
+                    "prerequisites": "Stage 1: JavaScript Foundations, SQL"
+                },
+                {
+                    "stage_order": 4,
+                    "stage_title": "Stage 4: Full Stack Architecture & REST API Integration",
+                    "skill": "React",
+                    "difficulty": 3,
+                    "est_hours": 15.0,
+                    "status": "not_started",
+                    "prerequisites": "Stage 2 & Stage 3 Completion"
+                }
+            ]
+
+            for stg in stages:
+                sk = skill_records.get(stg["skill"])
+                if sk:
+                    db.add(RoadmapItem(
+                        roadmap_id=roadmap.id,
+                        skill_id=sk.id,
+                        stage_order=stg["stage_order"],
+                        stage_title=stg["stage_title"],
+                        difficulty=stg["difficulty"],
+                        est_hours=stg["est_hours"],
+                        status=stg["status"],
+                        prerequisites=stg["prerequisites"]
+                    ))
 
     db.commit()

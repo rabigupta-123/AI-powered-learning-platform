@@ -25,15 +25,15 @@ def verify_frontend():
     server_proc = subprocess.Popen(
         [python_bin, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True
     )
     
     try:
         # Wait for server to become responsive
         server_ready = False
-        for attempt in range(20):
+        for attempt in range(30):
             try:
                 resp = httpx.get("http://127.0.0.1:8000/api", timeout=1.0)
                 if resp.status_code == 200:
@@ -44,7 +44,13 @@ def verify_frontend():
                 time.sleep(0.5)
                 
         if not server_ready:
-            print("❌ Server failed to respond on 127.0.0.1:8000 within 10 seconds.")
+            print("❌ Server failed to respond on 127.0.0.1:8000 within 15 seconds.")
+            # Read output
+            try:
+                out, _ = server_proc.communicate(timeout=2.0)
+                print("Server output:\n", out)
+            except Exception:
+                pass
             return False
 
         # 2. Launch Playwright

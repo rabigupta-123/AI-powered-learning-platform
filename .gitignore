@@ -51,3 +51,9 @@ frontend/node_modules/
 # Temporary debug files
 debug_failure.png
 check_jsx.js
+*.db-shm
+*.db-wal
+backend/certificates_storage/*.pdf
+!backend/certificates_storage/.gitkeep
+
+

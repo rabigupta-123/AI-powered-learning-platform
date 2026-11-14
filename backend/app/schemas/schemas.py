@@ -159,3 +159,71 @@ class RecommendationListResponse(BaseModel):
     recommendations: List[ResourceRecommendationItem]
     mentor_message: str
 
+
+# --- Quiz Schemas ---
+class QuizQuestionOption(BaseModel):
+    id: int
+    skill_id: int
+    question_text: str
+    option_a: str
+    option_b: str
+    option_c: str
+    option_d: str
+    difficulty: int
+
+class QuizSubmitRequest(BaseModel):
+    skill_id: int
+    answers: Dict[str, str] = Field(..., description="Map of question_id (str) to chosen option ('A', 'B', 'C', 'D')")
+
+class QuizQuestionResult(BaseModel):
+    question_id: int
+    question_text: str
+    selected_option: str
+    correct_option: str
+    is_correct: bool
+    explanation: str
+
+class QuizSubmissionResponse(BaseModel):
+    skill_id: int
+    skill_name: str
+    total_questions: int
+    correct_count: int
+    score_percentage: float
+    p_mastery_before: float
+    p_mastery_after: float
+    remediation_flag: bool
+    results: List[QuizQuestionResult]
+
+
+# --- Roadmap Schemas ---
+class RoadmapItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    roadmap_id: int
+    skill_id: int
+    skill_name: Optional[str] = None
+    stage_order: int
+    stage_title: str
+    difficulty: int
+    est_hours: float
+    status: str
+    prerequisites: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+class LearningRoadmapResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    user_id: int
+    role_id: int
+    role_title: str
+    title: str
+    generated_at: datetime
+    is_active: bool
+    progress_percentage: float
+    items: List[RoadmapItemResponse]
+
+class RoadmapItemStatusUpdate(BaseModel):
+    status: str = Field(..., description="Status: 'not_started', 'in_progress', 'completed'")
+
+

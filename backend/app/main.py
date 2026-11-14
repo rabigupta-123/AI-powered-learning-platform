@@ -2,9 +2,19 @@
 AI-Powered Personalized Learning Platform
 """
 import os
+import sys
+
+if sys.platform == "win32":
+    import asyncio
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -24,6 +34,7 @@ from .api.mentor import router as mentor_router
 from .api.settings import router as settings_router
 from .api.certificates import router as certificates_router
 from .api.courses import router as courses_router
+from .api.roadmap import router as roadmap_router
 
 # Initialize database schema and seeds synchronously at startup
 Base.metadata.create_all(bind=engine)
@@ -49,6 +60,9 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         content={"detail": "Rate limit exceeded. Please wait before retrying."}
     )
 
+# Compression middleware for high-efficiency network delivery
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # Strict CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -70,6 +84,7 @@ app.include_router(mentor_router)
 app.include_router(settings_router)
 app.include_router(certificates_router)
 app.include_router(courses_router)
+app.include_router(roadmap_router)
 
 # Mount static files and frontend UI
 base_dir = os.path.dirname(__file__)
@@ -90,6 +105,23 @@ if os.path.exists(dist_dir):
 
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/app.bundle.js", include_in_schema=False)
+def serve_app_bundle():
+    """Serves the precompiled production bundle with fast client-side caching."""
+    bundle_path = os.path.join(static_dir, "app.bundle.js")
+    if not os.path.exists(bundle_path) and os.path.exists(dist_dir):
+        bundle_path = os.path.join(dist_dir, "app.bundle.js")
+    if os.path.exists(bundle_path):
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            bundle_path,
+            media_type="application/javascript",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    return Response(status_code=404)
+
 
 @app.get("/", include_in_schema=False)
 def serve_frontend_ui():

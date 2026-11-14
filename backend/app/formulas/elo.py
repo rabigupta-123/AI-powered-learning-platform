@@ -22,3 +22,7 @@ def update_elo_rating(learner_rating: float, difficulty: float, actual_outcome: 
     outcome = 1.0 if actual_outcome >= 0.5 else 0.0
     new_rating = float(learner_rating) + K_FACTOR * (outcome - expected)
     return round(new_rating, 2)
+
+# Alias for backwards compatibility
+calculate_elo_update = update_elo_rating
+

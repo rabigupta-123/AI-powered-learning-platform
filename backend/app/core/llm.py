@@ -58,6 +58,23 @@ PROVIDER_MODELS = {
     ]
 }
 
+# High-efficiency persistent connection pool
+_HTTP_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0)
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=15.0, pool=10.0)
+_SHARED_CLIENT: Optional[httpx.Client] = None
+
+
+def get_shared_client() -> httpx.Client:
+    """Thread-safe persistent HTTP client with connection pooling and keep-alive."""
+    global _SHARED_CLIENT
+    if _SHARED_CLIENT is None or _SHARED_CLIENT.is_closed:
+        _SHARED_CLIENT = httpx.Client(
+            limits=_HTTP_LIMITS,
+            timeout=_HTTP_TIMEOUT,
+            http2=False
+        )
+    return _SHARED_CLIENT
+
 
 class LLMService:
     def __init__(self):
@@ -65,7 +82,7 @@ class LLMService:
         self.api_key = os.getenv("MENTOR_LLM_API_KEY", "").strip()
 
     def test_connection(self, provider: str, model: str, api_key: str) -> Dict[str, Any]:
-        """Validates provider credentials, endpoint latency, and model availability."""
+        """Validates provider credentials, endpoint latency, and model availability with connection reuse."""
         p = provider.lower().strip()
         m = model.strip() if model else DEFAULT_MODELS.get(p, "gpt-4o-mini")
         k = api_key.strip()
@@ -80,6 +97,7 @@ class LLMService:
             }
 
         start_time = time.time()
+        client = get_shared_client()
         try:
             if p in OPENAI_COMPATIBLE_BASE_URLS:
                 base_url = OPENAI_COMPATIBLE_BASE_URLS[p]
@@ -93,60 +111,58 @@ class LLMService:
                     "messages": [{"role": "user", "content": "Ping test."}],
                     "max_tokens": 5
                 }
-                with httpx.Client(timeout=12.0) as client:
-                    resp = client.post(url, json=payload, headers=headers)
-                    latency = round((time.time() - start_time) * 1000, 1)
-                    if resp.status_code == 200:
-                        return {
-                            "success": True,
-                            "status_code": 200,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Successfully connected to {p.upper()} ({m}) in {latency}ms."
-                        }
-                    else:
-                        error_detail = resp.text[:250]
-                        try:
-                            err_json = resp.json()
-                            if "error" in err_json:
-                                error_detail = err_json["error"].get("message", error_detail)
-                            elif "detail" in err_json:
-                                error_detail = err_json["detail"]
-                        except Exception:
-                            pass
-                        return {
-                            "success": False,
-                            "status_code": resp.status_code,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Provider returned HTTP {resp.status_code}: {error_detail}"
-                        }
+                resp = client.post(url, json=payload, headers=headers, timeout=12.0)
+                latency = round((time.time() - start_time) * 1000, 1)
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "status_code": 200,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Successfully connected to {p.upper()} ({m}) in {latency}ms."
+                    }
+                else:
+                    error_detail = resp.text[:250]
+                    try:
+                        err_json = resp.json()
+                        if "error" in err_json:
+                            error_detail = err_json["error"].get("message", error_detail)
+                        elif "detail" in err_json:
+                            error_detail = err_json["detail"]
+                    except Exception:
+                        pass
+                    return {
+                        "success": False,
+                        "status_code": resp.status_code,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Provider returned HTTP {resp.status_code}: {error_detail}"
+                    }
             elif p == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={k}"
                 payload = {"contents": [{"role": "user", "parts": [{"text": "Ping"}]}]}
-                with httpx.Client(timeout=12.0) as client:
-                    resp = client.post(url, json=payload)
-                    latency = round((time.time() - start_time) * 1000, 1)
-                    if resp.status_code == 200:
-                        return {
-                            "success": True,
-                            "status_code": 200,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Successfully connected to Google Gemini ({m}) in {latency}ms."
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "status_code": resp.status_code,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Gemini returned HTTP {resp.status_code}: {resp.text[:200]}"
-                        }
+                resp = client.post(url, json=payload, timeout=12.0)
+                latency = round((time.time() - start_time) * 1000, 1)
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "status_code": 200,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Successfully connected to Google Gemini ({m}) in {latency}ms."
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "status_code": resp.status_code,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Gemini returned HTTP {resp.status_code}: {resp.text[:200]}"
+                    }
             elif p in ("claude", "anthropic"):
                 url = "https://api.anthropic.com/v1/messages"
                 headers = {
@@ -159,27 +175,26 @@ class LLMService:
                     "max_tokens": 5,
                     "messages": [{"role": "user", "content": "Ping"}]
                 }
-                with httpx.Client(timeout=12.0) as client:
-                    resp = client.post(url, json=payload, headers=headers)
-                    latency = round((time.time() - start_time) * 1000, 1)
-                    if resp.status_code == 200:
-                        return {
-                            "success": True,
-                            "status_code": 200,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Successfully connected to Anthropic Claude ({m}) in {latency}ms."
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "status_code": resp.status_code,
-                            "latency_ms": latency,
-                            "provider": p,
-                            "model": m,
-                            "message": f"Claude returned HTTP {resp.status_code}: {resp.text[:200]}"
-                        }
+                resp = client.post(url, json=payload, headers=headers, timeout=12.0)
+                latency = round((time.time() - start_time) * 1000, 1)
+                if resp.status_code == 200:
+                    return {
+                        "success": True,
+                        "status_code": 200,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Successfully connected to Anthropic Claude ({m}) in {latency}ms."
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "status_code": resp.status_code,
+                        "latency_ms": latency,
+                        "provider": p,
+                        "model": m,
+                        "message": f"Claude returned HTTP {resp.status_code}: {resp.text[:200]}"
+                    }
             else:
                 return {
                     "success": False,
@@ -348,42 +363,42 @@ class LLMService:
         url = f"{base_url.rstrip('/')}/chat/completions"
 
         last_error = None
+        client = get_shared_client()
         # Up to 1 retry for transient connection timeouts or 5xx
         for attempt in range(2):
             try:
-                with httpx.Client(timeout=25.0) as client:
-                    resp = client.post(url, json=payload, headers=headers)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        choice = data.get("choices", [{}])[0]
-                        msg = choice.get("message", {})
-                        content = msg.get("content")
-                        if content:
-                            return content
-                        # Some models (like Minimax on NVIDIA) might put output in reasoning_content
-                        if msg.get("reasoning_content"):
-                            return msg["reasoning_content"]
-                        return "Received empty completion response from model."
-                    elif resp.status_code in (401, 403):
-                        return f"⚠️ **Authentication Failed ({provider_name.upper()})**: Invalid or expired API key. Please check your credentials in Settings."
-                    elif resp.status_code == 410:
-                        return f"⚠️ **Model Deprecated ({provider_name.upper()} - {model})**: This model has reached end of life. Please switch to an active model (e.g. `{DEFAULT_MODELS.get(provider_name)}`) in Settings."
-                    elif resp.status_code == 429:
-                        return f"⚠️ **Rate Limit Exceeded ({provider_name.upper()})**: Provider quota or rate limit exceeded. Please wait a moment or switch providers."
-                    else:
-                        error_msg = resp.text[:250]
-                        try:
-                            err_json = resp.json()
-                            if "error" in err_json:
-                                error_msg = err_json["error"].get("message", error_msg)
-                            elif "detail" in err_json:
-                                error_msg = err_json["detail"]
-                        except Exception:
-                            pass
-                        last_error = f"HTTP {resp.status_code}: {error_msg}"
-                        # Do not retry 4xx errors
-                        if 400 <= resp.status_code < 500:
-                            break
+                resp = client.post(url, json=payload, headers=headers, timeout=25.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choice = data.get("choices", [{}])[0]
+                    msg = choice.get("message", {})
+                    content = msg.get("content")
+                    if content:
+                        return content
+                    # Some models (like Minimax on NVIDIA) might put output in reasoning_content
+                    if msg.get("reasoning_content"):
+                        return msg["reasoning_content"]
+                    return "Received empty completion response from model."
+                elif resp.status_code in (401, 403):
+                    return f"⚠️ **Authentication Failed ({provider_name.upper()})**: Invalid or expired API key. Please check your credentials in Settings."
+                elif resp.status_code == 410:
+                    return f"⚠️ **Model Deprecated ({provider_name.upper()} - {model})**: This model has reached end of life. Please switch to an active model (e.g. `{DEFAULT_MODELS.get(provider_name)}`) in Settings."
+                elif resp.status_code == 429:
+                    return f"⚠️ **Rate Limit Exceeded ({provider_name.upper()})**: Provider quota or rate limit exceeded. Please wait a moment or switch providers."
+                else:
+                    error_msg = resp.text[:250]
+                    try:
+                        err_json = resp.json()
+                        if "error" in err_json:
+                            error_msg = err_json["error"].get("message", error_msg)
+                        elif "detail" in err_json:
+                            error_msg = err_json["detail"]
+                    except Exception:
+                        pass
+                    last_error = f"HTTP {resp.status_code}: {error_msg}"
+                    # Do not retry 4xx errors
+                    if 400 <= resp.status_code < 500:
+                        break
             except httpx.TimeoutException:
                 last_error = "Request timed out after 25 seconds."
             except Exception as e:
@@ -403,14 +418,14 @@ class LLMService:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         contents = [{"role": "user", "parts": [{"text": sys_prompt + "\n\nUser Question: " + user_msg}]}]
         try:
-            with httpx.Client(timeout=20.0) as client:
-                resp = client.post(url, json={"contents": contents})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        return candidates[0]["content"]["parts"][0]["text"]
-                return f"⚠️ **Gemini Error**: HTTP {resp.status_code} - {resp.text[:200]}"
+            client = get_shared_client()
+            resp = client.post(url, json={"contents": contents}, timeout=20.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    return candidates[0]["content"]["parts"][0]["text"]
+            return f"⚠️ **Gemini Error**: HTTP {resp.status_code} - {resp.text[:200]}"
         except Exception as e:
             return f"⚠️ **Gemini Connection Error**: {str(e)}"
 
@@ -437,11 +452,11 @@ class LLMService:
             "messages": messages,
         }
         try:
-            with httpx.Client(timeout=20.0) as client:
-                resp = client.post(url, json=body, headers=headers)
-                if resp.status_code == 200:
-                    return resp.json()["content"][0]["text"]
-                return f"⚠️ **Claude Error**: HTTP {resp.status_code} - {resp.text[:200]}"
+            client = get_shared_client()
+            resp = client.post(url, json=body, headers=headers, timeout=20.0)
+            if resp.status_code == 200:
+                return resp.json()["content"][0]["text"]
+            return f"⚠️ **Claude Error**: HTTP {resp.status_code} - {resp.text[:200]}"
         except Exception as e:
             return f"⚠️ **Claude Connection Error**: {str(e)}"
 

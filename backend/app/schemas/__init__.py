@@ -20,6 +20,13 @@ from .schemas import (
     GapReportResponse,
     ResourceRecommendationItem,
     RecommendationListResponse,
+    QuizQuestionOption,
+    QuizSubmitRequest,
+    QuizQuestionResult,
+    QuizSubmissionResponse,
+    RoadmapItemResponse,
+    LearningRoadmapResponse,
+    RoadmapItemStatusUpdate,
 )
 
 __all__ = [
@@ -44,5 +51,12 @@ __all__ = [
     "GapReportResponse",
     "ResourceRecommendationItem",
     "RecommendationListResponse",
+    "QuizQuestionOption",
+    "QuizSubmitRequest",
+    "QuizQuestionResult",
+    "QuizSubmissionResponse",
+    "RoadmapItemResponse",
+    "LearningRoadmapResponse",
+    "RoadmapItemStatusUpdate",
 ]
 
